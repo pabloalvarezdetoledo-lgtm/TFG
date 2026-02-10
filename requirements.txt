@@ -1,0 +1,37 @@
+# Data manipulation
+numpy
+pandas
+pandas-datareader
+
+# Econometrics
+statsmodels
+arch
+
+# Machine Learning
+scikit-learn
+xgboost
+shap
+
+# Time series
+pmdarima
+
+# Visualization
+matplotlib
+seaborn
+plotly
+
+# Data download
+yfinance
+fredapi
+
+# Hidden Markov Models
+hmmlearn
+
+# Utilities
+openpyxl
+xlrd
+tqdm
+
+# Jupyter (optional)
+jupyter
+notebook

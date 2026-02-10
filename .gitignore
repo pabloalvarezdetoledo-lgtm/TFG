@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Datos grandes (no subir a GitHub)
+data/raw/*.csv
+data/raw/*.xlsx
+data/processed/*.pkl
+data/processed/*.parquet
+
+# Resultados (opcional: puedes subirlos o no)
+results/models/*.pkl
+results/models/*.joblib
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
+
+# Temporales
+*.tmp
+*.bak
+~$*.docx
