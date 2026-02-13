@@ -1,51 +1,95 @@
-"""Descarga de datos financieros y económicos utilizando yfinance y FRED API"""
-
+"""
+Script de descarga de datos financieros
+Descarga series desde FRED, Yahoo Finance y fuentes externas.
+Guarda archivos CSV en data/raw/
+"""
+import os
+import sys
+from pathlib import Path
+from datetime import datetime
 import pandas as pd
 import numpy as np
 import yfinance as yf
 from fredapi import Fred
-from src.utils.config import Data_Raw, Start_Date, End_Date
+from dotenv import load_dotenv
+import requests
+from tqdm import tqdm
+# Cargar configuración y variables de entorno
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-def download_SP500():
-    """Descarga SP500 desde Yahoo"""
-    sp500 = yf.download("^GSPC", start=Start_Date, end=End_Date)
-    sp500.to_csv(Data_Raw / "SP500_daily.csv")
-    print("SP500 descargado y guardado.")
-    return sp500
+from utils.config import (
+    DATA_RAW,
+    DATA_EXTERNAL,
+    START_DATE,
+    END_DATE,
+    FRED_SERIES,
+    YAHOO_TICKERS,
+    EXTERNAL_SCOURCES 
+)
 
-def download_Blanace_Fed():
-    """Descarga datos de balance de la Fed desde FRED St Louis"""
-    fred = Fred(api_key = "8005f1bf90e91f01427d49ea9ed4ea41")
-    balance = fred.get_series('WALCL',
-                              observation_start= Start_Date,
-                              observation_end= End_Date)
-    balance.to_csv(Data_Raw / "Fed_Balance.csv")
-    print("Balance de la Fed descargado y guardado.")
-    return balance
+#CONFIGURACIÓN INICIAL 
 
-def download_VIX():
-    """Descarga VIX desde Yahoo"""
-    vix = yf.download("^VIX", start=Start_Date, end=End_Date)
-    vix.to_csv(Data_Raw / "VIX_daily.csv")
-    print("VIX descargado y guardado.")
-    return vix
+#Carga de variables de entorno
+load_dotenv()
 
-def download_Treasury_Yields():
-    """Descarga rendimientos de bonos del Tesoro desde FRED St Louis"""
-    fred = Fred(api_key = "8005f1bf90e91f01427d49ea9ed4ea41")
+#obtención API key de FRED
+FRED_API_KEY = os.getenv("FRED_API_KEY")
 
-    yields = pd.DataFrame({
-        'DGD2': fred.get_series('DGD2', observation_start= Start_Date),
-        'DGS10': fred.get_series('DGS10', observation_start= Start_Date)
-    })
+if not FRED_API_KEY:
+    raise ValueError(
+        "No se encontró la clave de API de FRED. Por favor, asegúrate de tener un archivo .env con la variable FRED_API_KEY definida"
+    )
 
-    yields.to_csv(Data_Raw / "Treasury_Yields.csv")
-    print("Rendimientos de bonos del Tesoro descargados y guardados.")
-    return yields
+fred = Fred(api_key = FRED_API_KEY)
 
-if __name__ == "__main__":
-    download_SP500()
-    download_Blanace_Fed()
-    download_VIX()
-    download_Treasury_Yields()
-    print("\n Todos los datos han sido descargados y guardados en la carpeta 'data/raw'.") 
+#Funciones de Descargas
+
+def download_fred_series(series_dict):
+    """
+    Descarga series desde FRED y las guarda en data/raw/
+    
+    Parameters
+    ----------
+    series_dict : dict
+        Diccionario con formato {'nombre': 'CODIGO_FRED'}
+        Ejemplo: {'fed_balance': 'WALCL'}
+    
+    Returns
+    -------
+    dict
+        Diccionario con los DataFrames descargados
+        
+    Notes
+    -----
+    - Las series se descargan en su frecuencia original (diaria, semanal, mensual)
+    - Se guardan como CSV con nombre: fred_{nombre}.csv
+    - Si una serie no está disponible, se salta y se imprime warning
+    """
+    print("\n" + "="*70)
+    print("DESCARGANDO SERIES DE FRED")
+    print("="*70)
+    
+    downloaded_data = {}
+
+    for name, fred_code in tqdm(series_dict.items(), desc = "Series FRED"):
+        try:
+            series = fred.get_series(
+                fred_code,
+                observation_start = START_DATE,
+                observation_end = END_DATE
+            )
+            df = pd.DataFrame({
+                'date': series.index,
+                name: series.values
+            })
+
+            info = fred.get_series_info(fred_code)
+            frequency = info.get('frequancy_short', 'Unknown')
+            units = info.get('units', 'Unknown')
+
+            output_path = DATA_RAW / f"fred_{name}.csv"
+            df.to_csv(output_path, index=False)
+
+            downloaded_data[name] = df
+
+            print(f"  ✓ {name:20s} | Código: {fred_code:15s} | )
