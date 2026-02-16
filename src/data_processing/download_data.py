@@ -210,25 +210,6 @@ def download_shiller_cape():
     -------
     pd.DataFrame
         DataFrame con columnas: date, price, dividend, earnings, cape
-        
-    Notes
-    -----
-    El archivo de Shiller es un Excel (.xls) con formato peculiar:
-    - Las primeras filas son encabezados descriptivos
-    - Los datos empiezan en la fila 8 (aproximadamente)
-    - Contiene datos mensuales desde 1871
-    
-    Columnas principales:
-    - Date: formato YYYY.MM (ejemplo: 2024.01 para enero 2024)
-    - P: Precio del S&P 500
-    - D: Dividendo
-    - E: Earnings (ganancias)
-    - CAPE: Cyclically Adjusted Price-Earnings Ratio (Shiller P/E)
-    
-    Referencias
-    ----------
-    - Fuente: http://www.econ.yale.edu/~shiller/data.htm
-    - Paper: Shiller, R.J. (2015). Irrational Exuberance, 3rd Edition.
     """
     print("\n" + "="*70)
     print("DESCARGANDO DATASET DE SHILLER (CAPE)")
@@ -247,24 +228,39 @@ def download_shiller_cape():
         with open(temp_file, 'wb') as f:
             f.write(response.content)
         
-        # Leer Excel (skiprows para saltar encabezados)
-        # Nota: El formato puede cambiar ligeramente con actualizaciones de Shiller
-        df_raw = pd.read_excel(
-            temp_file,
-            sheet_name='Data',
-            skiprows=7  # Saltar encabezados descriptivos
-        )
+        # Leer Excel con engine correcto para formato antiguo
+        try:
+            df_raw = pd.read_excel(
+                temp_file,
+                sheet_name='Data',
+                skiprows=7,
+                engine='xlrd'  # Necesario para archivos .xls antiguos
+            )
+        except ImportError:
+            # Si xlrd no está instalado, intentar con openpyxl
+            print("  ⚠ xlrd no disponible, intentando conversión...")
+            df_raw = pd.read_excel(
+                temp_file,
+                sheet_name='Data',
+                skiprows=7
+            )
         
-        # Renombrar columnas (los nombres varían, usar posiciones es más robusto)
-        # Columnas típicas: Date, P, D, E, CPI, CAPE, etc.
-        df = df_raw.iloc[:, [0, 1, 2, 3, 10]].copy()  # Date, P, D, E, CAPE
+        # Las primeras 5 columnas son: Date, P, D, E, ... (luego CPI, etc.)
+        # CAPE suele estar en columna 10
+        df = df_raw.iloc[:, [0, 1, 2, 3, 10]].copy()
         df.columns = ['date_raw', 'price', 'dividend', 'earnings', 'cape']
         
         # Convertir fecha de formato YYYY.MM a datetime
-        # Ejemplo: 2024.01 → 2024-01-01
-        df['year'] = df['date_raw'].astype(str).str.split('.').str[0].astype(int)
-        df['month'] = df['date_raw'].astype(str).str.split('.').str[1].astype(int)
-        df['date'] = pd.to_datetime(df[['year', 'month']].assign(day=1))
+        df['date_raw'] = pd.to_numeric(df['date_raw'], errors='coerce')
+        df = df.dropna(subset=['date_raw'])
+        
+        df['year'] = df['date_raw'].astype(int)
+        df['month'] = ((df['date_raw'] - df['year']) * 100).round().astype(int)
+        # Corregir meses (a veces vienen como 0.1 = enero)
+        df['month'] = df['month'].replace(0, 1)  # Si mes es 0, es enero
+        df['month'] = df['month'].clip(1, 12)     # Asegurar rango 1-12
+        
+        df['date'] = pd.to_datetime(df[['year', 'month']].assign(day=1), errors='coerce')
         
         # Seleccionar columnas finales
         df = df[['date', 'price', 'dividend', 'earnings', 'cape']]
@@ -275,29 +271,32 @@ def download_shiller_cape():
             (df['date'] <= pd.to_datetime(END_DATE))
         ]
         
-        # Limpiar valores inválidos (Shiller a veces tiene "NA" como string)
-        df = df.replace('NA', pd.NA)
-        df = df.dropna()
+        # Limpiar valores inválidos
+        for col in ['price', 'dividend', 'earnings', 'cape']:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        # Guardar CSV procesado
+        df = df.dropna(subset=['date'])
+        
+        # Guardar CSV con UTF-8
         output_path = DATA_EXTERNAL / "shiller_cape.csv"
-        df.to_csv(output_path, index=False)
+        df.to_csv(output_path, index=False, encoding='utf-8')
         
         print(f"  ✓ Shiller CAPE     | Obs: {len(df):5d} | "
               f"Periodo: {df['date'].min().strftime('%Y-%m')} a "
               f"{df['date'].max().strftime('%Y-%m')}")
         
         # Borrar archivo temporal
-        temp_file.unlink()
+        if temp_file.exists():
+            temp_file.unlink()
         
         return df
         
     except Exception as e:
         print(f"  ✗ ERROR descargando Shiller CAPE: {str(e)}")
-        print("  Nota: El formato del archivo de Shiller puede haber cambiado.")
-        print("  Descarga manual desde: http://www.econ.yale.edu/~shiller/data.htm")
+        print(f"     Tipo de error: {type(e).__name__}")
+        import traceback
+        print(f"     Traceback: {traceback.format_exc()}")
         return None
-
 
 # =============================================================================
 # FUNCIÓN PRINCIPAL
