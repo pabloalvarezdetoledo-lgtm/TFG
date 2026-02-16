@@ -19,7 +19,7 @@ FRED_SERIES = {
     'ff_rate': 'DFF',                         #Federal Funds Effective Rate
     'treasury_2y': 'DGS2',                    # 2 year Treasury Constant Maturiry Rate
     'treasury_10y': 'DGS10',                  # 10 year Treasury Constant Maturiry Rate
-    'spread_bbb': 'BAMLCOA4CBBB',             # ICE BofA BBB US Corporate Index OAS
+    'spread_bbb': 'BAMLC0A4CBBB',             # ICE BofA BBB US Corporate Index OAS
     'gdp_nominal': 'GDP'                      # GDP (Trimestral)
 }
 
@@ -30,9 +30,9 @@ YAHOO_TICKERS = {
 }
 
 # Fuentes externas (URLs de descarga)
-EXTERNAL_SCOURCES = {
+EXTERNAL_SOURCES = {
     #Earnings de Schiler (cCAPE dataset)
-    'schillr_cape': 'http://www.econ.yale.edu/~shiller/data/ie_data.xls'
+    'shiller_cape': 'http://www.econ.yale.edu/~shiller/data/ie_data.xls'
 }
 
 # Parámetros de Análisis

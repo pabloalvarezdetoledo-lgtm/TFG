@@ -5,3 +5,65 @@ lock/
 python/
 sandbox/
 staging/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Datos grandes (no subir CSVs pesados a GitHub)
+data/raw/*.csv
+data/raw/*.xlsx
+data/raw/*.xls
+data/processed/*.csv
+data/processed/*.pkl
+data/processed/*.parquet
+data/external/*.csv
+
+# Modelos entrenados (pueden ser pesados)
+results/models/*.pkl
+results/models/*.joblib
+results/models/*.h5
+
+# Resultados (regenerables ejecutando scripts)
+results/tables/*.csv
+results/tables/*.xlsx
+results/figures/*.png
+results/figures/*.pdf
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+*.log
+
+# Temporales de Word
+~$*.docx
+~$*.doc
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Entornos
+*.env
+.env

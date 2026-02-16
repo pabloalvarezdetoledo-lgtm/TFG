@@ -7,17 +7,14 @@ __pycache__/
 env/
 venv/
 ENV/
+env.bak/
+venv.bak/
 build/
 dist/
 *.egg-info/
+.eggs/
 
-# R
-.Rproj.user/
-.Rhistory
-.RData
-.Ruserdata
-
-# Jupyter
+# Jupyter Notebook
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
@@ -25,22 +22,41 @@ dist/
 .vscode/
 *.code-workspace
 
-# Datos grandes (no subir a GitHub)
+# Datos grandes (no subir CSVs pesados a GitHub)
 data/raw/*.csv
 data/raw/*.xlsx
+data/raw/*.xls
+data/processed/*.csv
 data/processed/*.pkl
 data/processed/*.parquet
+data/external/*.csv
 
-# Resultados (opcional: puedes subirlos o no)
+# Modelos entrenados (pueden ser pesados)
 results/models/*.pkl
 results/models/*.joblib
+results/models/*.h5
 
-# Sistema
+# Resultados (regenerables ejecutando scripts)
+results/tables/*.csv
+results/tables/*.xlsx
+results/figures/*.png
+results/figures/*.pdf
+
+# Sistema operativo
 .DS_Store
 Thumbs.db
 *.log
 
-# Temporales
-*.tmp
-*.bak
+# Temporales de Word
 ~$*.docx
+~$*.doc
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Entornos
+*.env
+.env
