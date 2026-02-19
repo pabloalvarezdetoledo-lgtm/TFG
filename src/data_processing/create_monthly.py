@@ -247,13 +247,23 @@ def merge_all_series(data):
     print("COMBINANDO TODAS LAS SERIES")
     print("="*70)
     
-    # Empezar con S&P 500 como base
+    # S&P 500 como base
     if data['sp500'] is not None:
         df_monthly = data['sp500'].copy()
         print(f"  Base: S&P 500 ({len(df_monthly)} obs)")
     else:
         raise ValueError("S&P 500 es obligatorio como serie base")
     
+    #Normaización de fechas: Conversión a "final de mes" para hacer el merge
+    df_monthly['date'] = pd.to_datetime(df_monthly['date']).dt.to_period('M').dt.to_timestamp('M')
+    print(f"[DEBUG] Fechas S&P normalizadas a fim de mes")
+    print(f"[DEBUG] ejemplo fechas: {df_monthly['date'].head(3).tolist()}")
+
+    #Normalización en todos lo DataFrames antes del merge
+    for key in ['vix', 'fed_balance', 'ff_rate', 'treasury_2y', 'treasury_10y', 'spread_bbb']:
+        if data[key] is None:
+            data[key]['date'] = pd.to_datetime(data[key]['date']).dt.to_period('M').dt.to_timestamp('M')
+
     # Lista de series a mergear (orden de prioridad)
     merge_order = [
         'vix', 'fed_balance', 'ff_rate', 
@@ -266,42 +276,93 @@ def merge_all_series(data):
                 df_monthly,
                 data[key],
                 on='date',
-                how='left'  # Left join: mantener todas las fechas de df_monthly
+                how='left'
             )
             print(f"  + {key:15s} ({len(data[key])} obs)")
     
-    # PIB: merge con interpolación lineal para llenar meses intermedios
+    # PIB
     if data['gdp'] is not None:
-        # Merge directo (solo trimestres coincidirán)
-        df_monthly = pd.merge(
-            df_monthly,
-            data['gdp'][['date', 'gdp_nominal']],
-            on='date',
-            how='left'
-        )
+        gdp_df = data['gdp'].copy()
         
-        # Interpolar linealmente los meses sin datos
-        df_monthly['gdp_nominal'] = df_monthly['gdp_nominal'].interpolate(method='linear')
-        print(f"  + gdp_nominal   (interpolado a {len(df_monthly)} meses)")
+        # Verificar qué columna tiene los datos de GDP
+        print(f"  [DEBUG GDP] Columnas en GDP: {gdp_df.columns.tolist()}")
+        
+        # Normalización de fechas a fin de mes
+        gdp_df['date'] = pd.to_datetime(gdp_df['date']).dt.to_period('M').dt.to_timestamp('M')
+
+        print(f" [DEBUG GDP] Columnas: {gdp_df.columns.tolist()}")
+        print(f"[DEBUG GDP] Primeras fechas: {gdp_df['date'].head(3).tolist()}")
+        
+        # Renombrar la columna de GDP si es necesario
+        gdp_col_name = None
+        for col in gdp_df.columns:
+            if col.lower().strip() in ['gdp', 'gdp_nominal']:
+                gdp_col_name = col
+                break
+        
+        if gdp_col_name and gdp_col_name != 'gdp_nominal':
+            gdp_df = gdp_df.rename(columns={gdp_col_name: 'gdp_nominal'})
+            print(f"  [DEBUG GDP] Renombrado '{gdp_col_name}' → 'gdp_nominal'")
+        
+        # Verificar que existe la columna
+        if 'gdp_nominal' in gdp_df.columns:
+            # Merge directo
+            df_monthly = pd.merge(
+                df_monthly,
+                gdp_df[['date', 'gdp_nominal']],
+                on='date',
+                how='left'
+            )
+            
+            # Interpolar linealmente
+            df_monthly['gdp_nominal'] = df_monthly['gdp_nominal'].interpolate(method='linear')
+            
+            # Verificar
+            gdp_not_null = df_monthly['gdp_nominal'].notna().sum()
+            print(f"  + gdp_nominal   (interpolado: {gdp_not_null}/{len(df_monthly)} meses con datos)")
+        else:
+            print(f"  ✗ ERROR: No se encontró columna de GDP")
     
-    # Shiller: merge directo (ya es mensual)
+    # SHILLER: CORRECCIÓN SIMPLE
     if data['shiller'] is not None:
-        # Renombrar columnas de Shiller para evitar conflictos
-        shiller_cols = {
-            'price': 'shiller_price',
-            'dividend': 'shiller_dividend',
-            'earnings': 'earnings',
-            'cape': 'cape'
-        }
-        df_shiller_renamed = data['shiller'].rename(columns=shiller_cols)
+        shiller_df = data['shiller'].copy()
         
+        print(f"  [DEBUG] Columnas Shiller: {shiller_df.columns.tolist()}")
+        
+        # Normalización fecha a fin de mes
+        shiller_df['date'] = pd.to_datetime(shiller_df['date']).dt.to_period('M').dt.to_timestamp('M')
+
+        print(f"[DEBUG] Columnas Shiller: {shiller_df.columns.tolist()}")
+        print(f"[DEBUG] Primeras Filas Shiller: {shiller_df['date'].head(3).tolist()}")
+              
+        # Renombrar solo price y dividend (earnings y cape ya tienen nombres correctos)
+        rename_dict = {}
+        if 'price' in shiller_df.columns:
+            rename_dict['price'] = 'shiller_price'
+        if 'dividend' in shiller_df.columns:
+            rename_dict['dividend'] = 'shiller_dividend'
+        
+        if rename_dict:
+            shiller_df = shiller_df.rename(columns=rename_dict)
+            print(f"  [DEBUG] Renombrado: {rename_dict}")
+        
+        # Merge
         df_monthly = pd.merge(
             df_monthly,
-            df_shiller_renamed,
+            shiller_df,
             on='date',
             how='left'
         )
-        print(f"  + shiller_data  ({len(data['shiller'])} obs)")
+        
+        # Contar datos válidos
+        if 'earnings' in df_monthly.columns:
+            earnings_count = df_monthly['earnings'].notna().sum()
+            cape_count = df_monthly['cape'].notna().sum() if 'cape' in df_monthly.columns else 0
+            print(f"  + shiller_data  ({len(data['shiller'])} obs)")
+            print(f"    - earnings: {earnings_count} valores válidos")
+            print(f"    - cape: {cape_count} valores válidos")
+        else:
+            print(f"  + shiller_data  ({len(data['shiller'])} obs)")
     
     # Ordenar por fecha
     df_monthly = df_monthly.sort_values('date').reset_index(drop=True)
@@ -459,7 +520,6 @@ def main():
     print("="*70)
     print(df_monthly.head().to_string())
 
-
     # Muestra de últimas filas
     print("\n" + "="*70)
     print("VISTA PREVIA (últimas 5 filas)")
@@ -469,8 +529,5 @@ def main():
     print("\n✓ Pipeline completado\n")
 
 # Ejecución
-
 if __name__ == "__main__":
      main()
-
-    

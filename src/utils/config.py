@@ -3,7 +3,7 @@ from pathlib import Path
 
 #Rutas del proyecto
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-DATA_RAW= PROJECT_ROOT / "data" / "raw"
+DATA_RAW = PROJECT_ROOT / "data" / "raw"
 DATA_PROCESSED = PROJECT_ROOT / "data" / "processed"
 DATA_EXTERNAL = PROJECT_ROOT / "data" / "external"
 RESULTS_TABLES = PROJECT_ROOT / "results" / "tables"
@@ -42,13 +42,13 @@ MONTHLY_FREQ = "M"
 
 #Congiuración VECM
 VECM_LAG_ORDER = 2
-VECM_DET_ORER = 0
+VECM_DET_ORDER = 0
 
 #Configuración HMM
 HMM_N_STATES = 2
 HMM_N_ITTER = 1000
 HMM_RANDOM_SEED = 42
-HHM_COVARIANCE_TYPE = 'full'
+HMM_COVARIANCE_TYPE = 'full'
 
 #Configuración XGBoost
 XGBOOST_PARAMS = {
@@ -62,7 +62,7 @@ XGBOOST_PARAMS = {
 }
 
     #Configuración de validación cruzada para XGBoost
-XGEBOOST_CV_FOLD = 5
+XGBOOST_CV_FOLD = 5
 XGBOOST_TEST_SIZE = 24
 
 #Eventos a estudiar (Event Study)
@@ -80,7 +80,7 @@ EVENTS = {
 }
 
 # Parametros de visualización
-PLOT_STYLE = 'seaborn-darkgrid'
+PLOT_STYLE = 'seaborn-V0_8-darkgrid'
 FIGURE_DPI = 300
 FIGURE_FORMAT = 'png'
 

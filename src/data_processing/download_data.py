@@ -148,14 +148,14 @@ def download_yahoo_series(tickers_dict):
     
     downloaded_data = {}
     
-    for name, ticker in tqdm(tickers_dict.items(), desc="Series Yahoo"):
+    for name, ticker in tqdm(tickers_dict.items(), desc = "Series Yahoo"):
         try:
             # Descargar datos usando Ticker object (más robusto)
             ticker_obj = yf.Ticker(ticker)
             data = ticker_obj.history(
-                start=START_DATE,
-                end=END_DATE,
-                auto_adjust=True  # Automáticamente ajusta por splits/dividendos
+                start = START_DATE,
+                end = END_DATE,
+                auto_adjust = True  # Automáticamente ajusta por splits/dividendos
             )
             
             # Verificar que data no esté vacío
@@ -232,8 +232,8 @@ def download_shiller_cape():
         try:
             df_raw = pd.read_excel(
                 temp_file,
-                sheet_name='Data',
-                skiprows=7,
+                sheet_name = 'Data',
+                skiprows = 7,
                 engine='xlrd'  # Necesario para archivos .xls antiguos
             )
         except ImportError:
@@ -247,7 +247,7 @@ def download_shiller_cape():
         
         # Las primeras 5 columnas son: Date, P, D, E, ... (luego CPI, etc.)
         # CAPE suele estar en columna 10
-        df = df_raw.iloc[:, [0, 1, 2, 3, 10]].copy()
+        df = df_raw.iloc[:, [0, 1, 2, 3, 12]].copy()
         df.columns = ['date_raw', 'price', 'dividend', 'earnings', 'cape']
         
         # Convertir fecha de formato YYYY.MM a datetime
