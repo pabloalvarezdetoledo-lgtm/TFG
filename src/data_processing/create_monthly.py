@@ -417,7 +417,7 @@ def calculo_transformaciones(df):
     print("\n  Rendimientos y crecimientos (Δlog):")
 
     if 'log_sp500' in df.columns:
-        df['ret_sp50'] = df['log_sp500'].diff()
+        df['ret_sp500'] = df['log_sp500'].diff()
         print("✓ ret_sp500 (rendimiento mensual S&P 500)")
 
     if 'log_balance' in df.columns:
