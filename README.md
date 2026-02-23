@@ -452,14 +452,8 @@ in the Software without restriction...
 ## 📧 Contacto
 
 **Pablo Álvarez de Toledo Rodríguez**  
-- 📧 Email: [tu_email@ucm.es](mailto:tu_email@ucm.es)
-- 🔗 LinkedIn: [Tu perfil](https://linkedin.com/in/tu-perfil)
-- 🐦 Twitter: [@tu_usuario](https://twitter.com/tu_usuario)
-
-**Supervisor Académico:**  
-[Nombre del director] - Departamento de Economía Aplicada, UCM
-
----
+- 📧 Email: [pabloalvarezdetoledo@gmail.com(mailto:pabloalvarezdetoledo@gmail.com)
+- 🔗 LinkedIn: www.linkedin.com/in/pablo-alvarez-de-toledo(www.linkedin.com/in/pablo-alvarez-de-toledo)
 
 ## 🙏 Agradecimientos
 
