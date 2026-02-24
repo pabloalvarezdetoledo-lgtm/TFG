@@ -35,3 +35,6 @@ tqdm
 # Jupyter (optional)
 jupyter
 notebook
+
+#leer variables de entorno desde .env
+python-dotenv==1.0.0
