@@ -1,533 +1,530 @@
 """
-Script de agregación de datos a frecuencia mensual
-Lee archivos CSV de data/raw/ y crea dataset mensual unificado
+Agregación a frecuencia mensual y cálculo de transformaciones
+Lee datos en frecuencia original y agrega a mensual con transformaciones
+
+Autor: Pablo Álvarez de Toledo Rodríguez
+Fecha: Enero 2026
 """
-import sys 
+
+import sys
 from pathlib import Path
 import pandas as pd
 import numpy as np
 from datetime import datetime
 
-SCRIPT_DIR = Path(__file__).resolve().parent  # src/data_processing/
-SRC_DIR = SCRIPT_DIR.parent                    # src/
-PROJECT_ROOT = SRC_DIR.parent                  # raíz del proyecto
-
 # Añadir src/ al path
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.config import (
     DATA_RAW,
-    DATA_EXTERNAL,
     DATA_PROCESSED,
+    DATA_EXTERNAL,
     START_DATE,
     END_DATE,
     MONTHLY_FREQ
 )
 
-#FUNCIONES AUXILIARES
-def resample_to_monthly(df, date_col = 'date', method = 'last'):
+
+# =============================================================================
+# FUNCIÓN: RESAMPLE A MENSUAL
+# =============================================================================
+def resample_to_monthly(df, date_col='date', method='last'):
     """
-    Agrega una serie temporal a frecuencia mensual
+    Resamplea DataFrame a frecuencia mensual
     
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame con columna de fecha y una o más columnas de datos
+        DataFrame con columna de fecha
     date_col : str
-        Nombre de la columna de fecha
+        Nombre de la columna de fechas
     method : str
-        Método de agregación: 'last' (último valor), 'mean' (promedio), 'sum' (suma)
+        Método de agregación ('last', 'mean', 'sum')
     
     Returns
     -------
     pd.DataFrame
-        DataFrame con frecuencia mensual (último día del mes)
-        
-    Notes
-    -----
-    Para variables de stock (precios, niveles): usar 'last'
-    Para variables de flujo (retornos, crecimientos): usar 'mean' o 'sum'
+        DataFrame mensual con 'date' como columna
     """
-    df[date_col] = pd.to_datetime(df[date_col], utc = True).dt.tz_localize(None)
-
+     # Asegurar que date_col es datetime
+    df = df.copy()
+    df[date_col] = pd.to_datetime(df[date_col], utc=True).dt.tz_localize(None)
+    # Set date as index
     df_indexed = df.set_index(date_col)
-
-    df_filled = df_indexed.ffill()
-
-    #Resample a mensual
+    
+    # Forward fill para rellenar weekends/holidays
+    # COMPATIBLE CON PANDAS 2.x
+    df_filled = df_indexed.ffill()  # ← CAMBIO AQUÍ: ffill() en lugar de fillna(method='ffill')
+    
+    # Resample según método
     if method == 'last':
         df_monthly = df_filled.resample('ME').last()
     elif method == 'mean':
         df_monthly = df_filled.resample('ME').mean()
     elif method == 'sum':
-        df_monthly.resample('ME').sum
+        df_monthly = df_filled.resample('ME').sum()
     else:
-        raise ValueError(f"Método '{method}' no reconocido. Usar: 'last', 'mean', 'sum'")
+        raise ValueError(f"Método '{method}' no reconocido")
     
-    # Reset índice para tener Date como Columna
+    # Reset index para tener 'date' como columna
     df_monthly = df_monthly.reset_index()
-    df_monthly = df_monthly.rename(columns = {'date': date_col})
     
     return df_monthly
 
-def load_and_resample(filepath, date_col = 'date', value_col=None, method = 'last'):
-  """
-    Carga CSV y agrega a frecuencia mensual
+# =============================================================================
+# FUNCIÓN: LOAD AND RESAMPLE
+# =============================================================================
+
+def load_and_resample(filepath, value_col, method='last'):
+    """
+    Carga CSV y resamplea a mensual en un paso
     
     Parameters
     ----------
     filepath : Path
-        Ruta al archivo CSV
-    date_col : str
-        Nombre de columna de fecha
-    value_col : str or None
-        Nombre de columna de datos. Si None, usa todas excepto date_col
+        Path al archivo CSV
+    value_col : str
+        Nombre de la columna de valores
     method : str
-        Método de agregación
+        Método de agregación ('last', 'mean', 'sum')
     
     Returns
     -------
     pd.DataFrame
-        DataFrame mensual
+        DataFrame mensual con columnas ['date', value_col]
     """
-#Lectura del CSV 
-  df = pd.read_csv(filepath, parse_dates=[date_col])
+    # BUG 4 CORREGIDO: Indentación correcta
+    df = pd.read_csv(filepath, parse_dates=['date'])
+    
+    # Seleccionar solo columnas relevantes
+    df = df[['date', value_col]]
+    
+    # Resample
+    df_monthly = resample_to_monthly(df, method=method)
+    
+    return df_monthly
 
-# Selección de columnas relevantes
-  if value_col is not None:
-      df = df[[date_col, value_col]]
-  
-  # Agregar a Mensual
-  df_monthly = resample_to_monthly(df, date_col=date_col, method=method)
 
-  return df_monthly
+# =============================================================================
+# FUNCIÓN: LOAD ALL DATA
+# =============================================================================
 
-#Función Principal de Carga
 def load_all_data():
     """
-    Carga todas las series desde data/raw/  y data/exteral/
+    Carga todas las series y las resamplea a mensual
     
     Returns
-    --------
+    -------
     dict
-        Diccionario con DataFrames mensuales por categoría
+        Diccionario con DataFrames mensuales
     """
     print("\n" + "="*70)
-    print("Cargando y Agregando Datos a Frecuancia Mensual")
+    print("CARGANDO Y RESAMPLING A MENSUAL")
     print("="*70)
-
+    
     data = {}
-
-    # 1. S&P 500 (diario -> Mensual, último valor)
+    
+    # -------------------------------------------------------------------------
+    # 1. S&P 500 (diario → mensual, último valor)
+    # -------------------------------------------------------------------------
     print("\n[1/9] S&P 500...")
     sp500_path = DATA_RAW / "yahoo_sp500.csv"
     if sp500_path.exists():
-        df_sp500 = load_and_resample(sp500_path, value_col='sp500', method='last')
-        data['sp500'] = df_sp500
-        print(f" ✓ S&P 500: {len(df_sp500)} meses")
+        data['sp500'] = load_and_resample(sp500_path, 'sp500', method='last')
+        print(f"  ✓ S&P 500: {len(data['sp500'])} meses")
     else:
         print(f"  ✗ Archivo no encontrado: {sp500_path}")
         data['sp500'] = None
-
-    # 2. VIX (diario -> Mensual, último valor)
+    
+    # -------------------------------------------------------------------------
+    # 2. VIX (diario → mensual, último valor)
+    # -------------------------------------------------------------------------
     print("\n[2/9] VIX...")
     vix_path = DATA_RAW / "yahoo_vix.csv"
     if vix_path.exists():
-        df_vix = load_and_resample(vix_path, value_col = 'vix', method='last')
-        data['vix'] = df_vix
-        print(f" ✓ VIX: {len(df_vix)} meses")
+        data['vix'] = load_and_resample(vix_path, 'vix', method='last')
+        print(f"  ✓ VIX: {len(data['vix'])} meses")
     else:
         print(f"  ✗ Archivo no encontrado: {vix_path}")
         data['vix'] = None
-
-    # 3. Balance de la Fed (semanal -> mensual, último valor)
-    print("\n[3/9] Balance de la FED...")
+    
+    # -------------------------------------------------------------------------
+    # 3. Balance de la Fed (semanal → mensual, último valor)
+    # -------------------------------------------------------------------------
+    print("\n[3/9] Balance Fed...")
     balance_path = DATA_RAW / "fred_fed_balance.csv"
     if balance_path.exists():
-        df_balance = load_and_resample(balance_path, value_col= 'fed_balance', method= 'last')
-        data['fed_balance'] = df_balance
-        print(f" ✓ Balance FED: {len(df_balance)} meses")
+        data['fed_balance'] = load_and_resample(balance_path, 'fed_balance', method='last')
+        print(f"  ✓ Balance Fed: {len(data['fed_balance'])} meses")
     else:
         print(f"  ✗ Archivo no encontrado: {balance_path}")
         data['fed_balance'] = None
-
-    # 4. Federal Fund Rate (diario -> mensual, último valor)
-    print("\n[4/9] Federal Fund Rate...")
+    
+    # -------------------------------------------------------------------------
+    # 4. Fed Funds Rate (diario → mensual, último valor)
+    # -------------------------------------------------------------------------
+    print("\n[4/9] Fed Funds Rate...")
     ff_path = DATA_RAW / "fred_ff_rate.csv"
     if ff_path.exists():
-        df_ff = load_and_resample(ff_path, value_col = 'ff_rate', method = 'last')
-        data['ff_rate'] = df_ff
-        print(f" ✓  FF Rate: {len(df_ff)} meses")
+        data['ff_rate'] = load_and_resample(ff_path, 'ff_rate', method='last')
+        print(f"  ✓ Fed Funds: {len(data['ff_rate'])} meses")
     else:
-        (f"  ✗ Archivo no encontrado: {ff_path}")
+        # BUG 5 CORREGIDO: Añadido print()
+        print(f"  ✗ Archivo no encontrado: {ff_path}")
         data['ff_rate'] = None
-
-    # 5. Treasury 2y (diario -> mensual, último valor)
-    print("\n[5/9] Treasury Bonds 2 year rate...")
+    
+    # -------------------------------------------------------------------------
+    # 5. Treasury 2Y (diario → mensual, último valor)
+    # -------------------------------------------------------------------------
+    print("\n[5/9] Treasury 2Y...")
     t2y_path = DATA_RAW / "fred_treasury_2y.csv"
     if t2y_path.exists():
-        df_t2y = load_and_resample(t2y_path, value_col = 'treasury_2y', method= 'last')
-        data['treasury_2y'] = df_t2y
-        print(f"✓ Treasury 2Y: {len(df_t2y)} meses" )
+        data['treasury_2y'] = load_and_resample(t2y_path, 'treasury_2y', method='last')
+        print(f"  ✓ Treasury 2Y: {len(data['treasury_2y'])} meses")
     else:
         print(f"  ✗ Archivo no encontrado: {t2y_path}")
         data['treasury_2y'] = None
     
-    # 6. Treasury 10y (diario -> mensual, último valor)
-    print("\n[6/9] Treasury Bonds 10 year rate...")
+    # -------------------------------------------------------------------------
+    # 6. Treasury 10Y (diario → mensual, último valor)
+    # -------------------------------------------------------------------------
+    print("\n[6/9] Treasury 10Y...")
     t10y_path = DATA_RAW / "fred_treasury_10y.csv"
     if t10y_path.exists():
-        df_t10y = load_and_resample(t10y_path, value_col = 'treasury_10y', method= 'last')
-        data['treasury_10y'] = df_t10y
-        print(f"✓ Treasury 2Y: {len(df_t10y)} meses" )
+        data['treasury_10y'] = load_and_resample(t10y_path, 'treasury_10y', method='last')
+        print(f"  ✓ Treasury 10Y: {len(data['treasury_10y'])} meses")
     else:
         print(f"  ✗ Archivo no encontrado: {t10y_path}")
         data['treasury_10y'] = None
-
-    # 7. Spread BBB (diario -> mensual, último valor)
+    
+    # -------------------------------------------------------------------------
+    # 7. Spread BBB (diario → mensual, último valor)
+    # -------------------------------------------------------------------------
     print("\n[7/9] Spread BBB...")
     spread_path = DATA_RAW / "fred_spread_bbb.csv"
     if spread_path.exists():
-        df_spread = load_and_resample(spread_path, value_col = 'spread_bbb', method = 'last')
-        data['spread_bbb'] = df_spread
-        print(f"  ✓ Spread BBB: {len(df_spread)} meses")
+        data['spread_bbb'] = load_and_resample(spread_path, 'spread_bbb', method='last')
+        print(f"  ✓ Spread BBB: {len(data['spread_bbb'])} meses")
     else:
         print(f"  ✗ Archivo no encontrado: {spread_path}")
         data['spread_bbb'] = None
-
-    # 8. PIB (trimestral → mantener trimestral por ahora)
-    print("\n[8/9] PIB nominal")
+    
+    # -------------------------------------------------------------------------
+    # 8. GDP (trimestral, NO resamplear todavía - interpolar en merge)
+    # -------------------------------------------------------------------------
+    print("\n[8/9] GDP...")
     gdp_path = DATA_RAW / "fred_gdp_nominal.csv"
     if gdp_path.exists():
-        df_gdp = pd.read_csv(gdp_path, parse_dates = ['date'])
-    #Por ahora dejar así PIB nominal. En un futuro haremos interpolación.
-        data['gdp'] = df_gdp
-        print(f"  ✓ PIB: {len(df_gdp)} trimestres")
+        df_gdp = pd.read_csv(gdp_path, parse_dates=['date'])
+        data['gdp_nominal'] = df_gdp[['date', 'gdp_nominal']]
+        print(f"  ✓ GDP: {len(data['gdp_nominal'])} trimestres (interpolar después)")
     else:
         print(f"  ✗ Archivo no encontrado: {gdp_path}")
-        data['gdp'] = None
-
-    # 9. Shiller CAPE (mensual, ya está en frecuencia correcta)
+        data['gdp_nominal'] = None
+    
+    # -------------------------------------------------------------------------
+    # 9. Shiller CAPE (ya mensual)
+    # -------------------------------------------------------------------------
     print("\n[9/9] Shiller CAPE...")
     shiller_path = DATA_EXTERNAL / "shiller_cape.csv"
     if shiller_path.exists():
-        try:
-            #Intentar primero UTF-8
-            df_shiller = pd.read_csv(shiller_path, parse_dates=['date'], encoding='utf-8')
-            data['shiller'] = df_shiller
-            print(f" ✓ Shiller CAPE: {len(df_shiller)} meses")
-        except UnicodeDecodeError:
-            # Fallback a latin-1 si UTF-8 falla
-            df_shiller = pd.read_csv(shiller_path, parse_dates=['date'], encoding='latin-1')
-            data['shiller'] = df_shiller
-            print(f" ✓ Shiller CAPE: {len(df_shiller)} meses")
+        df_shiller = pd.read_csv(shiller_path, parse_dates=['date'])
+        data['shiller'] = df_shiller[['date', 'price', 'dividend', 'earnings', 'cape']]
+        print(f"  ✓ Shiller: {len(data['shiller'])} meses")
     else:
         print(f"  ✗ Archivo no encontrado: {shiller_path}")
         data['shiller'] = None
-
+    
     return data
 
-# Merge de Todas las Series
+
+# =============================================================================
+# FUNCIÓN: MERGE ALL SERIES
+# =============================================================================
+
 def merge_all_series(data):
     """
-    Hace merge de todas las series en un solo DataFrame mensual
+    Hace merge de todas las series en un único DataFrame mensual
     
     Parameters
     ----------
     data : dict
-        Diccionario con DataFrames por categoría
+        Diccionario con DataFrames de cada serie
     
     Returns
     -------
     pd.DataFrame
-        DataFrame mensual unificado
+        DataFrame con todas las series alineadas mensualmente
     """
     print("\n" + "="*70)
-    print("COMBINANDO TODAS LAS SERIES")
+    print("MERGE DE SERIES A FRECUENCIA MENSUAL")
     print("="*70)
     
-    # S&P 500 como base
-    if data['sp500'] is not None:
-        df_monthly = data['sp500'].copy()
-        print(f"  Base: S&P 500 ({len(df_monthly)} obs)")
-    else:
+    # BUG 2 CORREGIDO: Cambiar "is None" por "is not None"
+    # Normalizar formato de fechas en todas las series
+    for key in data.keys():
+        if data[key] is not None:  # ← CORRECCIÓN AQUÍ
+            data[key]['date'] = pd.to_datetime(data[key]['date'])
+            # Asegurar que sea fin de mes
+            data[key]['date'] = data[key]['date'] + pd.offsets.MonthEnd(0)
+    
+    # Base: S&P 500 (todas las demás series se alinean a estas fechas)
+    if data['sp500'] is None:
         raise ValueError("S&P 500 es obligatorio como serie base")
     
-    #Normaización de fechas: Conversión a "final de mes" para hacer el merge
-    df_monthly['date'] = pd.to_datetime(df_monthly['date']).dt.to_period('M').dt.to_timestamp('M')
-    print(f"[DEBUG] Fechas S&P normalizadas a fim de mes")
-    print(f"[DEBUG] ejemplo fechas: {df_monthly['date'].head(3).tolist()}")
-
-    #Normalización en todos lo DataFrames antes del merge
-    for key in ['vix', 'fed_balance', 'ff_rate', 'treasury_2y', 'treasury_10y', 'spread_bbb']:
-        if data[key] is None:
-            data[key]['date'] = pd.to_datetime(data[key]['date']).dt.to_period('M').dt.to_timestamp('M')
-
-    # Lista de series a mergear (orden de prioridad)
-    merge_order = [
-        'vix', 'fed_balance', 'ff_rate', 
-        'treasury_2y', 'treasury_10y', 'spread_bbb'
-    ]
+    df_monthly = data['sp500'].copy()
+    print(f"Base: S&P 500 ({len(df_monthly)} meses)")
     
-    for key in merge_order:
-        if data[key] is not None:
-            df_monthly = pd.merge(
-                df_monthly,
-                data[key],
-                on='date',
-                how='left'
-            )
-            print(f"  + {key:15s} ({len(data[key])} obs)")
+    # Merge secuencial con left join (preserva fechas de SP500)
     
-    # PIB
-    if data['gdp'] is not None:
-        gdp_df = data['gdp'].copy()
-        
-        # Verificar qué columna tiene los datos de GDP
-        print(f"  [DEBUG GDP] Columnas en GDP: {gdp_df.columns.tolist()}")
-        
-        # Normalización de fechas a fin de mes
-        gdp_df['date'] = pd.to_datetime(gdp_df['date']).dt.to_period('M').dt.to_timestamp('M')
-
-        print(f" [DEBUG GDP] Columnas: {gdp_df.columns.tolist()}")
-        print(f"[DEBUG GDP] Primeras fechas: {gdp_df['date'].head(3).tolist()}")
-        
-        # Renombrar la columna de GDP si es necesario
-        gdp_col_name = None
-        for col in gdp_df.columns:
-            if col.lower().strip() in ['gdp', 'gdp_nominal']:
-                gdp_col_name = col
-                break
-        
-        if gdp_col_name and gdp_col_name != 'gdp_nominal':
-            gdp_df = gdp_df.rename(columns={gdp_col_name: 'gdp_nominal'})
-            print(f"  [DEBUG GDP] Renombrado '{gdp_col_name}' → 'gdp_nominal'")
-        
-        # Verificar que existe la columna
-        if 'gdp_nominal' in gdp_df.columns:
-            # Merge directo
-            df_monthly = pd.merge(
-                df_monthly,
-                gdp_df[['date', 'gdp_nominal']],
-                on='date',
-                how='left'
-            )
-            
-            # Interpolar linealmente
-            df_monthly['gdp_nominal'] = df_monthly['gdp_nominal'].interpolate(method='linear')
-            
-            # Verificar
-            gdp_not_null = df_monthly['gdp_nominal'].notna().sum()
-            print(f"  + gdp_nominal   (interpolado: {gdp_not_null}/{len(df_monthly)} meses con datos)")
-        else:
-            print(f"  ✗ ERROR: No se encontró columna de GDP")
+    # VIX
+    if data['vix'] is not None:
+        df_monthly = pd.merge(df_monthly, data['vix'], on='date', how='left')
+        print(f"  + vix           ({len(data['vix'])} meses)")
     
-    # SHILLER: CORRECCIÓN SIMPLE
-    if data['shiller'] is not None:
-        shiller_df = data['shiller'].copy()
-        
-        print(f"  [DEBUG] Columnas Shiller: {shiller_df.columns.tolist()}")
-        
-        # Normalización fecha a fin de mes
-        shiller_df['date'] = pd.to_datetime(shiller_df['date']).dt.to_period('M').dt.to_timestamp('M')
-
-        print(f"[DEBUG] Columnas Shiller: {shiller_df.columns.tolist()}")
-        print(f"[DEBUG] Primeras Filas Shiller: {shiller_df['date'].head(3).tolist()}")
-              
-        # Renombrar solo price y dividend (earnings y cape ya tienen nombres correctos)
-        rename_dict = {}
-        if 'price' in shiller_df.columns:
-            rename_dict['price'] = 'shiller_price'
-        if 'dividend' in shiller_df.columns:
-            rename_dict['dividend'] = 'shiller_dividend'
-        
-        if rename_dict:
-            shiller_df = shiller_df.rename(columns=rename_dict)
-            print(f"  [DEBUG] Renombrado: {rename_dict}")
-        
-        # Merge
+    # Balance Fed
+    if data['fed_balance'] is not None:
+        df_monthly = pd.merge(df_monthly, data['fed_balance'], on='date', how='left')
+        print(f"  + fed_balance   ({len(data['fed_balance'])} meses)")
+    
+    # Fed Funds
+    if data['ff_rate'] is not None:
+        df_monthly = pd.merge(df_monthly, data['ff_rate'], on='date', how='left')
+        print(f"  + ff_rate       ({len(data['ff_rate'])} meses)")
+    
+    # Treasury 2Y
+    if data['treasury_2y'] is not None:
+        df_monthly = pd.merge(df_monthly, data['treasury_2y'], on='date', how='left')
+        print(f"  + treasury_2y   ({len(data['treasury_2y'])} meses)")
+    
+    # Treasury 10Y
+    if data['treasury_10y'] is not None:
+        df_monthly = pd.merge(df_monthly, data['treasury_10y'], on='date', how='left')
+        print(f"  + treasury_10y  ({len(data['treasury_10y'])} meses)")
+    
+    # Spread BBB
+    if data['spread_bbb'] is not None:
+        df_monthly = pd.merge(df_monthly, data['spread_bbb'], on='date', how='left')
+        print(f"  + spread_bbb    ({len(data['spread_bbb'])} meses)")
+    
+    # GDP: merge con interpolación
+    if data['gdp_nominal'] is not None:
         df_monthly = pd.merge(
             df_monthly,
-            shiller_df,
+            data['gdp_nominal'][['date', 'gdp_nominal']],
             on='date',
             how='left'
         )
         
-        # Contar datos válidos
-        if 'earnings' in df_monthly.columns:
-            earnings_count = df_monthly['earnings'].notna().sum()
-            cape_count = df_monthly['cape'].notna().sum() if 'cape' in df_monthly.columns else 0
-            print(f"  + shiller_data  ({len(data['shiller'])} obs)")
-            print(f"    - earnings: {earnings_count} valores válidos")
-            print(f"    - cape: {cape_count} valores válidos")
-        else:
-            print(f"  + shiller_data  ({len(data['shiller'])} obs)")
+        # Interpolar linealmente
+        df_monthly['gdp_nominal'] = df_monthly['gdp_nominal'].interpolate(method='linear')
+        print(f"  + gdp_nominal   (interpolado a {len(df_monthly)} meses)")
     
-    # Ordenar por fecha
-    df_monthly = df_monthly.sort_values('date').reset_index(drop=True)
+    # Shiller: merge de todas las columnas
+    if data['shiller'] is not None:
+        # Renombrar columnas para evitar conflictos
+        shiller_cols = data['shiller'].copy()
+        shiller_cols.columns = ['date', 'shiller_price', 'shiller_dividend', 'earnings', 'cape']
+        
+        df_monthly = pd.merge(df_monthly, shiller_cols, on='date', how='left')
+        print(f"  + shiller (price, dividend, earnings, cape)")
     
-    print(f"\n  → DataFrame final: {len(df_monthly)} meses × {len(df_monthly.columns)} columnas")
+    print(f"\nDataFrame final: {len(df_monthly)} meses × {len(df_monthly.columns)} variables")
     
     return df_monthly
 
-# Cálculo de Transformaciones
-def calculo_transformaciones(df):
+
+# =============================================================================
+# FUNCIÓN: CALCULATE TRANSFORMATIONS
+# =============================================================================
+
+def calculate_transformations(df):
     """
-    Calcula transformaciones: logs, diferencias, rendimientos
+    Calcula transformaciones (logs, diferencias, ratios)
     
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame mensual con series en niveles
+        DataFrame con series en niveles
     
     Returns
     -------
     pd.DataFrame
-        DataFrame con columnas transformadas añadidas
+        DataFrame con transformaciones añadidas
     """
     print("\n" + "="*70)
     print("CALCULANDO TRANSFORMACIONES")
     print("="*70)
-
-    df = df.copy()
     
-# Logaritmos
-    print("\n Logaritnos naturales:")
+    # -------------------------------------------------------------------------
+    # LOGARITMOS (para series que crecen exponencialmente)
+    # -------------------------------------------------------------------------
+    print("\n  Logaritmos:")
+    
+    # Log S&P 500
     if 'sp500' in df.columns:
         df['log_sp500'] = np.log(df['sp500'])
-        print(" ✓ log_sp500")
+        print("    ✓ log_sp500")
     
+    # Log Balance Fed
     if 'fed_balance' in df.columns:
         df['log_balance'] = np.log(df['fed_balance'])
         print("    ✓ log_balance")
     
+    # Log Earnings (con manejo de negativos)
     if 'earnings' in df.columns:
-        # Eliminar earnings negativos o cero (raros pero ocurren en crisis)
+        # Reemplazar 0 y negativos por NaN antes de log
         df['earnings_clean'] = df['earnings'].replace(0, np.nan)
         df['earnings_clean'] = df['earnings_clean'].apply(lambda x: x if x > 0 else np.nan)
         df['log_earnings'] = np.log(df['earnings_clean'])
-        print("    ✓ log_earnings")
+        print("    ✓ log_earnings (negativos → NaN)")
     
+    # Log GDP
     if 'gdp_nominal' in df.columns:
         df['log_gdp'] = np.log(df['gdp_nominal'])
         print("    ✓ log_gdp")
-
-# Rendimientos y Crecimientos
-    print("\n  Rendimientos y crecimientos (Δlog):")
-
+    
+    # -------------------------------------------------------------------------
+    # RENDIMIENTOS Y CRECIMIENTOS (diferencias de logs)
+    # -------------------------------------------------------------------------
+    print("\n  Rendimientos/Crecimientos:")
+    
+    # Rendimiento S&P 500
     if 'log_sp500' in df.columns:
         df['ret_sp500'] = df['log_sp500'].diff()
-        print("✓ ret_sp500 (rendimiento mensual S&P 500)")
-
+        print("    ✓ ret_sp500 (rendimiento mensual)")
+    
+    # Crecimiento Balance
     if 'log_balance' in df.columns:
         df['growth_balance'] = df['log_balance'].diff()
-        print( "✓ growth_balance (crecimiento mensual balance Fed)")
-
-#Diferencias simples, para valores ya en porcentajes o puntos basicos
-    print ("\n Diferencias simples:")
-
+        print("    ✓ growth_balance (crecimiento mensual balance)")
+    
+    # -------------------------------------------------------------------------
+    # DIFERENCIAS SIMPLES (para variables ya en % o basis points)
+    # -------------------------------------------------------------------------
+    print("\n  Diferencias simples:")
+    
+    # Cambio en VIX
     if 'vix' in df.columns:
         df['delta_vix'] = df['vix'].diff()
-        print(" ✓ delta_vix")
-
+        print("    ✓ delta_vix")
+    
+    # Cambio en Fed Funds
     if 'ff_rate' in df.columns:
         df['delta_ff'] = df['ff_rate'].diff()
-        print(" ✓ delta_ff")
-
-    if 'spread_bbb' in df.columns:
-        df['delta_spread'] = df['ff_rate'].diff()
-        print(" ✓ delta_spread")
+        print("    ✓ delta_ff")
     
-# Pendiente de la Curva (10y - 2y)
+    # Cambio en Spread BBB
+    if 'spread_bbb' in df.columns:
+        # BUG 3 CORREGIDO: Usar spread_bbb en lugar de ff_rate
+        df['delta_spread'] = df['spread_bbb'].diff()  # ← CORRECCIÓN AQUÍ
+        print("    ✓ delta_spread")
+    
+    # -------------------------------------------------------------------------
+    # VARIABLES DERIVADAS
+    # -------------------------------------------------------------------------
     print("\n  Variables derivadas:")
-
+    
+    # Pendiente de la curva (slope)
     if 'treasury_10y' in df.columns and 'treasury_2y' in df.columns:
         df['slope_curve'] = df['treasury_10y'] - df['treasury_2y']
+        print("    ✓ slope_curve (10Y - 2Y)")
+        
+        # Cambio en pendiente
         df['delta_slope'] = df['slope_curve'].diff()
-        print(" ✓ slope_curve (10Y - 2Y)")
         print("    ✓ delta_slope")
-
-#Información de Valores Faltantes
+    
+    # -------------------------------------------------------------------------
+    # RESUMEN DE MISSING VALUES
+    # -------------------------------------------------------------------------
     print("\n" + "="*70)
     print("RESUMEN DE VALORES FALTANTES")
     print("="*70)
-
+    
     missing_summary = df.isnull().sum()
     missing_pct = (missing_summary / len(df) * 100).round(2)
-
-    missing_df = pd.DataFrame({
-        'Variable': missing_summary.index,
-        'NaN count': missing_summary.values,
-        'NaN %': missing_pct.values
-    })
-
-    #Mostrar solo variables con NaN > 0
-    missing_df = missing_df[missing_df['NaN count'] > 0].sort_values('NaN count', ascending=False)
-
-    if len(missing_df) > 0:
-        print(missing_df.to_string(index=False))
-    else:
-        print("  ✓ No hay valores faltantes")
+    
+    print(f"\n{'Variable':<20} {'Missing':<10} {'%':<10}")
+    print("-"*40)
+    for var in df.columns:
+        if var != 'date':
+            n_missing = missing_summary[var]
+            pct_missing = missing_pct[var]
+            if n_missing > 0:
+                print(f"{var:<20} {n_missing:<10} {pct_missing:<10.2f}")
     
     return df
 
-# FUNCION PRINCIPAL
+
+# =============================================================================
+# FUNCIÓN PRINCIPAL
+# =============================================================================
+
 def main():
     """
-    Pipeline completo: carga, merge, transformaciones
+    Pipeline completo de agregación mensual
     """
     print("\n" + "="*70)
-    print(" PIPELINE DE CREACIÓN DE DATASET MENSUAL")
+    print(" PIPELINE DE AGREGACIÓN A FRECUENCIA MENSUAL")
     print("="*70)
-    print(f"Periodo: {START_DATE} a {END_DATE}")
-    print(f"Frecuencia: Mensual (fin de mes)")
+    print(f"Periodo objetivo: {START_DATE} a {END_DATE}")
     print("="*70)
-
+    
     start_time = datetime.now()
+    
+    # Paso 1: Cargar datos
     data = load_all_data()
+    
+    # Paso 2: Merge
     df_monthly = merge_all_series(data)
-    df_monthly = calculo_transformaciones(df_monthly)
+    
+    # Paso 3: Transformaciones
+    df_monthly = calculate_transformations(df_monthly)
+    
+    # Paso 4: Filtrar por rango de fechas
+    print("\n" + "="*70)
+    print("FILTRADO POR RANGO DE FECHAS")
+    print("="*70)
+    
     df_monthly = df_monthly[
         (df_monthly['date'] >= pd.to_datetime(START_DATE)) &
-        (df_monthly['date'] <= pd.to_datetime(END_DATE))   
+        (df_monthly['date'] <= pd.to_datetime(END_DATE))
     ]
-
-    # Guardar CSV Procesado
-    output_path = DATA_PROCESSED / "monthly_data.csv"
-    df_monthly.to_csv(output_path, index = False)
-
-    # Guardado también en Pickle
+    
+    print(f"Observaciones en rango: {len(df_monthly)}")
+    print(f"Periodo final: {df_monthly['date'].min().strftime('%Y-%m')} a "
+          f"{df_monthly['date'].max().strftime('%Y-%m')}")
+    
+    # Paso 5: Guardar
+    print("\n" + "="*70)
+    print("GUARDANDO RESULTADOS")
+    print("="*70)
+    
+    # CSV (human-readable)
+    output_csv = DATA_PROCESSED / "monthly_data.csv"
+    df_monthly.to_csv(output_csv, index=False)
+    size_csv = output_csv.stat().st_size / 1024
+    print(f"  ✓ CSV guardado: {output_csv} ({size_csv:.1f} KB)")
+    
+    # Pickle (Python-optimized)
     output_pkl = DATA_PROCESSED / "monthly_data.pkl"
     df_monthly.to_pickle(output_pkl)
-
-    # Resumen Final
+    size_pkl = output_pkl.stat().st_size / 1024
+    print(f"  ✓ Pickle guardado: {output_pkl} ({size_pkl:.1f} KB)")
+    
+    # Resumen
+    elapsed = (datetime.now() - start_time).total_seconds()
     print("\n" + "="*70)
-    print("DATASET MENSUAL CREADO EXITOSAMENTE")
+    print("PIPELINE COMPLETADO")
     print("="*70)
-    print(f"Observaciones:  {len(df_monthly)}")
-    print(f"Variables:      {len(df_monthly.columns)}")
-    print(f"Periodo:        {df_monthly['date'].min().strftime('%Y-%m')} a "
-          f"{df_monthly['date'].max().strftime('%Y-%m')}")
-    print(f"Tiempo total:   {(datetime.now() - start_time).total_seconds():.1f}s")
-    print(f"\nArchivos guardados:")
-    print(f"  - {output_path}")
-    print(f"  - {output_pkl}")
+    print(f"Tiempo total: {elapsed:.1f}s")
+    print(f"Dataset final: {len(df_monthly)} meses × {len(df_monthly.columns)} variables")
+    print("\n✓ Datos listos para análisis\n")
 
-    # Muestra de Primeras Filas
-    print("\n" + "="*70)
-    print("VISTA PREVIA (primeras 5 filas)")
-    print("="*70)
-    print(df_monthly.head().to_string())
 
-    # Muestra de últimas filas
-    print("\n" + "="*70)
-    print("VISTA PREVIA (últimas 5 filas)")
-    print("="*70)
-    print(df_monthly.tail().to_string())
+# =============================================================================
+# EJECUCIÓN
+# =============================================================================
 
-    print("\n✓ Pipeline completado\n")
-
-# Ejecución
 if __name__ == "__main__":
-     main()
+    main()

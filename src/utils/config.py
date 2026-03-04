@@ -37,7 +37,7 @@ EXTERNAL_SOURCES = {
 
 # Parámetros de Análisis
 START_DATE = "2000-01-01"
-END_DATE = "2026-02-18"
+END_DATE = "2026-03-01"
 MONTHLY_FREQ = "M"
 
 #Congiuración VECM
