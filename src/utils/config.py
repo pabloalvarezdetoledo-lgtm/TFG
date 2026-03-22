@@ -16,11 +16,14 @@ for path in [DATA_PROCESSED, DATA_EXTERNAL, DATA_RAW, RESULTS_TABLES, RESULTS_FI
 #Códigos de series de FRED
 FRED_SERIES = {
     'fed_balance': 'WALCL',                   # Total Assets, All Federal Reserve Banks (Balance de la FED)
-    'ff_rate': 'DFF',                         #Federal Funds Effective Rate
+    'ff_rate': 'DFF',                         # Federal Funds Effective Rate
     'treasury_2y': 'DGS2',                    # 2 year Treasury Constant Maturiry Rate
     'treasury_10y': 'DGS10',                  # 10 year Treasury Constant Maturiry Rate
     'spread_bbb': 'BAMLC0A4CBBB',             # ICE BofA BBB US Corporate Index OAS
-    'gdp_nominal': 'GDP'                      # GDP (Trimestral)
+    'gdp_nominal': 'GDP',                     # GDP (Trimestral)
+    'rrp_overnight': 'RRPONTSYD',             # Reverse Repurchase Agreements: Overnight (RRPONTSYD)}
+    'tga': 'WTREGEN',                         # Total Government Assets
+    'total_reserves': 'TOTRESNS'
 }
 
 # tickers de yahoo

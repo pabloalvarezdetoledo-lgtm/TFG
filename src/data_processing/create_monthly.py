@@ -127,7 +127,7 @@ def load_all_data():
     # -------------------------------------------------------------------------
     # 1. S&P 500 (diario → mensual, último valor)
     # -------------------------------------------------------------------------
-    print("\n[1/9] S&P 500...")
+    print("\n[1/11] S&P 500...")
     sp500_path = DATA_RAW / "yahoo_sp500.csv"
     if sp500_path.exists():
         data['sp500'] = load_and_resample(sp500_path, 'sp500', method='last')
@@ -139,7 +139,7 @@ def load_all_data():
     # -------------------------------------------------------------------------
     # 2. VIX (diario → mensual, último valor)
     # -------------------------------------------------------------------------
-    print("\n[2/9] VIX...")
+    print("\n[2/11] VIX...")
     vix_path = DATA_RAW / "yahoo_vix.csv"
     if vix_path.exists():
         data['vix'] = load_and_resample(vix_path, 'vix', method='last')
@@ -151,7 +151,7 @@ def load_all_data():
     # -------------------------------------------------------------------------
     # 3. Balance de la Fed (semanal → mensual, último valor)
     # -------------------------------------------------------------------------
-    print("\n[3/9] Balance Fed...")
+    print("\n[3/11] Balance Fed...")
     balance_path = DATA_RAW / "fred_fed_balance.csv"
     if balance_path.exists():
         data['fed_balance'] = load_and_resample(balance_path, 'fed_balance', method='last')
@@ -163,7 +163,7 @@ def load_all_data():
     # -------------------------------------------------------------------------
     # 4. Fed Funds Rate (diario → mensual, último valor)
     # -------------------------------------------------------------------------
-    print("\n[4/9] Fed Funds Rate...")
+    print("\n[4/11] Fed Funds Rate...")
     ff_path = DATA_RAW / "fred_ff_rate.csv"
     if ff_path.exists():
         data['ff_rate'] = load_and_resample(ff_path, 'ff_rate', method='last')
@@ -176,7 +176,7 @@ def load_all_data():
     # -------------------------------------------------------------------------
     # 5. Treasury 2Y (diario → mensual, último valor)
     # -------------------------------------------------------------------------
-    print("\n[5/9] Treasury 2Y...")
+    print("\n[5/11] Treasury 2Y...")
     t2y_path = DATA_RAW / "fred_treasury_2y.csv"
     if t2y_path.exists():
         data['treasury_2y'] = load_and_resample(t2y_path, 'treasury_2y', method='last')
@@ -188,7 +188,7 @@ def load_all_data():
     # -------------------------------------------------------------------------
     # 6. Treasury 10Y (diario → mensual, último valor)
     # -------------------------------------------------------------------------
-    print("\n[6/9] Treasury 10Y...")
+    print("\n[6/11] Treasury 10Y...")
     t10y_path = DATA_RAW / "fred_treasury_10y.csv"
     if t10y_path.exists():
         data['treasury_10y'] = load_and_resample(t10y_path, 'treasury_10y', method='last')
@@ -200,7 +200,7 @@ def load_all_data():
     # -------------------------------------------------------------------------
     # 7. Spread BBB (diario → mensual, último valor)
     # -------------------------------------------------------------------------
-    print("\n[7/9] Spread BBB...")
+    print("\n[7/11] Spread BBB...")
     spread_path = DATA_RAW / "fred_spread_bbb.csv"
     if spread_path.exists():
         data['spread_bbb'] = load_and_resample(spread_path, 'spread_bbb', method='last')
@@ -212,7 +212,7 @@ def load_all_data():
     # -------------------------------------------------------------------------
     # 8. GDP (trimestral, NO resamplear todavía - interpolar en merge)
     # -------------------------------------------------------------------------
-    print("\n[8/9] GDP...")
+    print("\n[8/11] GDP...")
     gdp_path = DATA_RAW / "fred_gdp_nominal.csv"
     if gdp_path.exists():
         df_gdp = pd.read_csv(gdp_path, parse_dates=['date'])
@@ -225,16 +225,37 @@ def load_all_data():
     # -------------------------------------------------------------------------
     # 9. Shiller CAPE (ya mensual)
     # -------------------------------------------------------------------------
-    print("\n[9/9] Shiller CAPE...")
+    print("\n[9/11] Shiller CAPE...")
     shiller_path = DATA_EXTERNAL / "shiller_cape.csv"
     if shiller_path.exists():
         df_shiller = pd.read_csv(shiller_path, parse_dates=['date'])
         data['shiller'] = df_shiller[['date', 'price', 'dividend', 'earnings', 'cape']]
         print(f"  ✓ Shiller: {len(data['shiller'])} meses")
     else:
+        
         print(f"  ✗ Archivo no encontrado: {shiller_path}")
         data['shiller'] = None
+   
+    # 10. Overnight Reverse Repo (diario → mensual, último valor)
+    print("\n[10/11] Overnight Reverse Repo...")
+    rrp_path = DATA_RAW / "fred_rrp_overnight.csv"
+    if rrp_path.exists():
+        data['rrp_overnight'] = load_and_resample(rrp_path, 'rrp_overnight', method='last')
+        print(f"  ✓ Overnight Reverse Repo: {len(data['rrp_overnight'])} meses")
+    else:
+        print(f"  ✗ Archivo no encontrado: {rrp_path}")
+        data['rrp_overnight'] = None
     
+    # 11. Treasury General Account ( semanal → mensual, promedio))
+    print("\n[11/11] Treasury General Account...")
+    tga_path = DATA_RAW / "fred_tga.csv"
+    if tga_path.exists():
+        data['tga'] = load_and_resample(tga_path, 'tga', method='mean')
+        print(f"  ✓ Treasury General Account: {len(data['tga'])} meses")
+    else:
+        print(f"  ✗ Archivo no encontrado: {tga_path}")
+        data['tga'] = None
+
     return data
 
 
@@ -329,6 +350,16 @@ def merge_all_series(data):
         df_monthly = pd.merge(df_monthly, shiller_cols, on='date', how='left')
         print(f"  + shiller (price, dividend, earnings, cape)")
     
+    # RRP
+    if data['rrp_overnight'] is not None:
+        df_monthly = pd.merge(df_monthly, data['rrp_overnight'], on='date', how='left')
+        print(f"  + rrp_overnight ({len(data['rrp_overnight'])} meses)")
+    
+    # TGA
+    if data['tga'] is not None:
+        df_monthly = pd.merge(df_monthly, data['tga'], on='date', how='left')
+        print(f"  + tga ({len(data['tga'])} meses)")
+
     print(f"\nDataFrame final: {len(df_monthly)} meses × {len(df_monthly.columns)} variables")
     
     return df_monthly
@@ -452,7 +483,31 @@ def calculate_transformations(df):
             pct_missing = missing_pct[var]
             if n_missing > 0:
                 print(f"{var:<20} {n_missing:<10} {pct_missing:<10.2f}")
+
+    # NET LIQUIDITY (Familia A)
+    print("\n  Net Liquidity (Familia A):")
+
+    if all(col in df.columns for col in ['fed_balance', 'rrp_overnight', 'tga']):
+        # Reemplazar NaN en RRP y TGA con 0 (antes de 2021, no existían)
+        df['rrp_overnight_filled'] = df['rrp_overnight'].fillna(0)
+        df['tga_filled'] = df['tga'].fillna(0)
+
+        #Net Liquidity = Balance - RRP - TGA
+        df['net_liquidity'] = df['fed_balance'] - df['rrp_overnight_filled'] - df['tga_filled']
+        print("    ✓ net_liquidity (Balance - RRP - TGA)")
+
+        #Logaritmo
+        df['log_net_liquidity'] = np.log(df['net_liquidity'])
+        print("    ✓ log_net_liquidity")
+
+        #Crecimiento mensual
+        df['growth_net_liquidity'] = df['log_net_liquidity'].diff()
+        print("    ✓ growth_net_liquidity (crecimiento mensual liquidez neta)")
+    else:
+         print("    ✗ Variables faltantes para calcular Net Liquidity")
     
+
+     
     return df
 
 
