@@ -193,9 +193,9 @@ def plot_series_levels(df):
     # Panel 2: Balance de la Fed (escala logarítmica)
     # -------------------------------------------------------------------------
     ax2 = axes[0, 1]
-    ax2.plot(df['date'], df['fed_balance'], linewidth=1.5, 
+    ax2.plot(df['date'], df['net_liquidity'], linewidth=1.5, 
              color='#2ca02c', label='Balance Fed')
-    ax2.set_ylabel('Fed Balance Sheet (millones USD)', fontweight='bold')
+    ax2.set_ylabel('Liquidez neta en el mercado (millones USD)', fontweight='bold')
     ax2.set_yscale('log')
     ax2.grid(True, alpha=0.3)
     ax2.legend(loc='upper left')
@@ -412,7 +412,7 @@ def plot_balance_vs_sp500(df):
     # Plot del balance con área sombreada
     ax1.plot(df['date'], df['fed_balance'], linewidth=2.5, 
              color=color_balance, label='Balance Fed', zorder=3)
-    ax1.fill_between(df['date'], df['fed_balance'], alpha=0.2, 
+    ax1.fill_between(df['date'], df['net_liquidity'], alpha=0.2, 
                      color=color_balance, zorder=1)
     
     ax1.tick_params(axis='y', labelcolor=color_balance)

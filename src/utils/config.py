@@ -23,7 +23,7 @@ FRED_SERIES = {
     'gdp_nominal': 'GDP',                     # GDP (Trimestral)
     'rrp_overnight': 'RRPONTSYD',             # Reverse Repurchase Agreements: Overnight (RRPONTSYD)}
     'tga': 'WTREGEN',                         # Total Government Assets
-    'total_reserves': 'TOTRESNS'
+    'total_reserves': 'TOTRESNS'              # Total reserves
 }
 
 # tickers de yahoo
