@@ -38,6 +38,7 @@ EXTERNAL_SOURCES = {
     'shiller_cape': 'https://img1.wsimg.com/blobby/go/e5e77e0b-59d1-44d9-ab25-4763ac982e53/downloads/25d6827d-c04b-447a-bb6d-918d5d88be49/ie_data.xls?ver=1770307872442'
 }
 
+
 # Parámetros de Análisis
 START_DATE = "2000-01-01"
 END_DATE = "2026-03-01"

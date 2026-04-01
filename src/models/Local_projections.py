@@ -125,6 +125,7 @@ class LocalProjectionAnalysis:
             for lag in range(1, self.lags + 1):
                 col = f"{var}_lag{lag}"
                 df_lp[col] = df_lp[var].shift(lag)
+                
                 regressors.append(col)
 
         use_cols = ["date", f"{response_var}_lead_{h}"] + regressors

@@ -11,7 +11,10 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime
+import io
+import zipfile
 import pandas as pd
+from plotly.express import line
 import yfinance as yf
 from fredapi import Fred
 from dotenv import load_dotenv
@@ -298,6 +301,121 @@ def download_shiller_cape():
         print(f"     Traceback: {traceback.format_exc()}")
         return None
 
+def download_french_portfolios():
+    """
+    Descarga los 6 Portfolios Formed on Size and Book-to-Market (2x3)
+    de Kenneth French y construye proxies mensuales Growth vs Value.
+
+    Guarda un CSV en data/raw/ con columnas:
+    - date
+    - ff_small_growth
+    - ff_small_value
+    - ff_big_growth
+    - ff_big_value
+    - ff_growth
+    - ff_value
+    """
+    print("\n" + "="*70)
+    print("DESCARGANDO PORTFOLIOS DE FRENCH")
+    print("="*70)
+
+    try:
+        url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/6_Portfolios_2x3_CSV.zip"
+
+        response = requests.get(url, timeout=60)
+        response.raise_for_status()
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+            file_name = zf.namelist()[0]
+            lines = zf.read(file_name).decode("utf-8", errors="ignore").splitlines()
+
+        header = None
+        data_rows = []    
+        for line in lines:
+            parts = [x.replace('"', '').strip() for x in line.split(",")]
+
+            if header is None:
+                line_upper = line.upper()
+                if "SMALL" in line_upper and "BIG" in line_upper and len(parts) >= 7:
+                    header = parts[:7]
+                continue
+
+            if len(parts) < 7:
+                continue
+
+            date_token = parts[0]
+            if date_token.isdigit() and len(date_token) == 6:
+                data_rows.append(parts[:7])
+            
+        if header is None:
+            raise ValueError("No se encontró la fila de encabezado con los nombres de las columnas")
+    
+        if not data_rows:
+            raise ValueError("No se encontraron filas de datos válidas en el archivo CSV")  
+        
+        df = pd.DataFrame(data_rows, columns=header)
+        df = df.rename(columns={df.columns[0]: "date_raw"})
+    
+        portfolio_cols = [col for col in df.columns if col != "date_raw"]
+    
+        for col in portfolio_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce") / 100.0
+
+        df["date"] = pd.to_datetime(df["date_raw"], format="%Y%m", errors="coerce") + pd.offsets.MonthEnd(0)
+    
+        def find_column(size_keyword, style_keyword):
+            for col in portfolio_cols:
+                col_norm = col.upper().replace(" ", "")    
+                if size_keyword in col_norm and any(k in col_norm for k in style_keyword):
+                    return col
+            raise ValueError(f"No se encontró columna para {size_keyword} / {style_keyword}")
+    
+        small_growth_col = find_column("SMALL", ["LOBM", "GROWTH"])
+        small_value_col  = find_column("SMALL", ["HIBM", "VALUE"])
+        big_growth_col   = find_column("BIG",   ["LOBM", "GROWTH"])
+        big_value_col    = find_column("BIG",   ["HIBM", "VALUE"])
+
+        df["ff_small_growth"] = df[small_growth_col]
+        df["ff_small_value"]  = df[small_value_col]
+        df["ff_big_growth"]   = df[big_growth_col]
+        df["ff_big_value"]    = df[big_value_col]
+
+        df["ff_growth"] = (df["ff_small_growth"] + df["ff_big_growth"]) / 2 
+        df["ff_value"] = (df["ff_small_value"] + df["ff_big_value"]) / 2
+
+        df = df[
+            [
+                "date",
+                "ff_small_growth",
+                "ff_small_value",
+                "ff_big_growth",
+                "ff_big_value",
+                "ff_growth",
+                "ff_value"
+            ]
+        ].copy()
+
+        df = df.dropna(subset=["date", "ff_growth", "ff_value"])
+
+        df = df[
+                (df["date"] >= pd.to_datetime(START_DATE)) &
+                (df["date"] <= pd.to_datetime(END_DATE))            
+                ]
+        
+        output_path = DATA_RAW / "french_6_portfoios_size_bm.csv"
+        df.to_csv(output_path, index = False)
+
+        print(f" ✓ Kenneth French   | Obs: {len(df):5d} | "
+              f"Periodo: {df['date'].min().strftime('%Y-%m')} a {df['date'].max().strftime('%Y-%m')}")
+        print(f"  ✓ Archivo guardado en: {output_path}")
+
+        return df
+    
+    except Exception as e:
+        print(f"  ✗ ERROR descargando Kenneth French: {str(e)}")
+        import traceback
+        print(f"     Traceback: {traceback.format_exc()}")
+        return None
+
 # =============================================================================
 # FUNCIÓN PRINCIPAL
 # =============================================================================
@@ -324,6 +442,9 @@ def main():
     
     # 3. Descargar dataset de Shiller
     shiller_data = download_shiller_cape()
+
+    # 4. Descargar portfolios de Keneth French
+    french_data = download_french_portfolios()
     
     # Resumen final
     print("\n" + "="*70)
@@ -332,6 +453,7 @@ def main():
     print(f"Series FRED descargadas:  {len(fred_data)}/{len(FRED_SERIES)}")
     print(f"Series Yahoo descargadas: {len(yahoo_data)}/{len(YAHOO_TICKERS)}")
     print(f"Shiller CAPE:             {'✓' if shiller_data is not None else '✗'}")
+    print(f"Kenneth French portfolios: {'✓' if french_data is not None else '✗'}")
     print(f"\nTiempo total: {(datetime.now() - start_time).total_seconds():.1f}s")
     print(f"Archivos guardados en: {DATA_RAW}")
     print("="*70)
