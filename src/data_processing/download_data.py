@@ -394,6 +394,24 @@ def download_french_portfolios():
             ]
         ].copy()
 
+        #Eliminar dubplicados mensuales por fecha
+        df["date"]= pd.to_datetime(df["date"])
+        df = df.sort_("date")
+
+        df = (
+            df.groupby("date", as_index=False)[
+            [
+            "ff_small_growth",
+            "ff_small_value",
+            "ff_big_growth",
+            "ff_big_value",
+            "ff_growth",
+            "ff_value",
+            ]
+            ]
+            .mean()
+        )
+
         df = df.dropna(subset=["date", "ff_growth", "ff_value"])
 
         df = df[
@@ -401,7 +419,7 @@ def download_french_portfolios():
                 (df["date"] <= pd.to_datetime(END_DATE))            
                 ]
         
-        output_path = DATA_RAW / "french_6_portfoios_size_bm.csv"
+        output_path = DATA_RAW / "french_6_portfolios_size_bm.csv"
         df.to_csv(output_path, index = False)
 
         print(f" ✓ Kenneth French   | Obs: {len(df):5d} | "
