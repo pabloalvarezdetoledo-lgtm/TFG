@@ -19,9 +19,15 @@ from utils.config import (
     DATA_RAW,
     DATA_PROCESSED,
     DATA_EXTERNAL,
+    RESULTS_TABLES,
+    PROJECT_ROOT,
     START_DATE,
     END_DATE,
-    MONTHLY_FREQ
+    MONTHLY_FREQ,
+    REGION,
+    EURO_AREA_MONTHLY_INPUTS,
+    EURO_AREA_DERIVED_VARIABLES,
+    EURO_AREA_PLACEHOLDER_SERIES
 )
 
 
@@ -105,6 +111,433 @@ def load_and_resample(filepath, value_col, method='last'):
     return df_monthly
 
 
+def warn_missing_euro_area_csv(filepath, value_col, required):
+    """Avisa de CSV euro area ausente sin interrumpir el pipeline."""
+    priority = "REQUERIDO" if required else "opcional"
+    print(
+        f"  AVISO {priority}: no se encontro CSV para {value_col}: {filepath}. "
+        "Se continua sin esta serie."
+    )
+
+
+def load_euro_area_data():
+    """
+    Carga las series euro area configuradas y las resamplea a mensual.
+
+    Las fuentes pendientes se esperan como CSV con columna date y una columna
+    con el mismo nombre que la variable. Si faltan, se imprime aviso y se sigue.
+    """
+    print("\n" + "="*70)
+    print("CARGANDO Y RESAMPLING A MENSUAL - EURO AREA")
+    print("="*70)
+
+    data = {}
+
+    for value_col, meta in EURO_AREA_MONTHLY_INPUTS.items():
+        filepath = DATA_RAW / meta["filename"]
+        method = meta.get("method", "last")
+        required = meta.get("required", False)
+        status = "requerida" if required else "opcional"
+
+        print(f"\n- {value_col} ({status}, metodo={method})...")
+
+        if not filepath.exists():
+            warn_missing_euro_area_csv(filepath, value_col, required)
+            data[value_col] = None
+            continue
+
+        try:
+            data[value_col] = load_and_resample(filepath, value_col, method=method)
+            print(f"  OK {value_col}: {len(data[value_col])} meses")
+        except Exception as exc:
+            print(f"  AVISO: no se pudo cargar {value_col} desde {filepath}: {exc}")
+            data[value_col] = None
+
+    return data
+
+
+def merge_euro_area_series(data):
+    """
+    Hace merge de series euro area sin exigir que todos los CSV existan.
+
+    EURO STOXX 50 es la base preferente. Si aun no existe, se usa la primera
+    serie disponible para permitir pruebas parciales del pipeline.
+    """
+    print("\n" + "="*70)
+    print("MERGE DE SERIES EURO AREA A FRECUENCIA MENSUAL")
+    print("="*70)
+
+    for key in data.keys():
+        if data[key] is not None:
+            data[key]['date'] = pd.to_datetime(data[key]['date'])
+            data[key]['date'] = data[key]['date'] + pd.offsets.MonthEnd(0)
+
+    base_name = "eurostoxx50" if data.get("eurostoxx50") is not None else None
+
+    if base_name is None:
+        for key, value in data.items():
+            if value is not None:
+                base_name = key
+                print(
+                    f"  AVISO: eurostoxx50 no esta disponible; "
+                    f"se usa {base_name} como base temporal provisional."
+                )
+                break
+
+    if base_name is None:
+        print("  AVISO: no hay ninguna serie euro area disponible para merge.")
+        return pd.DataFrame(columns=["date"])
+
+    df_monthly = data[base_name].copy()
+    print(f"Base: {base_name} ({len(df_monthly)} meses)")
+
+    for key, value in data.items():
+        if key == base_name or value is None:
+            continue
+        df_monthly = pd.merge(df_monthly, value, on="date", how="left")
+        print(f"  + {key:<28s} ({len(value)} meses)")
+
+    print(f"\nDataFrame euro area: {len(df_monthly)} meses x {len(df_monthly.columns)} variables")
+    return df_monthly
+
+
+def calculate_euro_area_transformations(df):
+    """
+    Calcula transformaciones iniciales para el baseline euro area.
+
+    No elimina las transformaciones US heredadas; esta funcion solo se usa
+    cuando REGION='euro_area'.
+    """
+    print("\n" + "="*70)
+    print("CALCULANDO TRANSFORMACIONES EURO AREA")
+    print("="*70)
+
+    if df.empty:
+        print("  AVISO: DataFrame euro area vacio; no se calculan transformaciones.")
+        return df
+
+    print("\n  Logaritmos y rendimientos:")
+
+    if "eurostoxx50" in df.columns:
+        df["log_eurostoxx50"] = np.log(df["eurostoxx50"])
+        df["ret_eurostoxx50"] = df["log_eurostoxx50"].diff()
+        print("    OK log_eurostoxx50, ret_eurostoxx50")
+
+    if "eurosystem_total_assets" in df.columns:
+        clean_assets = df["eurosystem_total_assets"].where(df["eurosystem_total_assets"] > 0)
+        df["log_eurosystem_total_assets"] = np.log(clean_assets)
+        df["growth_eurosystem_total_assets"] = df["log_eurosystem_total_assets"].diff()
+        print("    OK growth_eurosystem_total_assets")
+
+    if "excess_liquidity" in df.columns:
+        clean_excess_liquidity = df["excess_liquidity"].where(df["excess_liquidity"] > 0)
+        df["log_excess_liquidity"] = np.log(clean_excess_liquidity)
+        df["growth_excess_liquidity"] = df["log_excess_liquidity"].diff()
+        print("    OK growth_excess_liquidity")
+
+    print("\n  Diferencias simples:")
+
+    if "vstoxx" in df.columns:
+        df["delta_vstoxx"] = df["vstoxx"].diff()
+        print("    OK delta_vstoxx")
+
+    if "ciss" in df.columns:
+        df["delta_ciss"] = df["ciss"].diff()
+        print("    OK delta_ciss")
+
+    if "deposit_facility_rate" in df.columns:
+        df["delta_deposit_rate"] = df["deposit_facility_rate"].diff()
+        print("    OK delta_deposit_rate")
+
+    if "european_credit_spread" in df.columns:
+        df["delta_european_credit_spread"] = df["european_credit_spread"].diff()
+        print("    OK delta_european_credit_spread")
+
+    print("\n  Variables derivadas:")
+
+    if "euro_area_10y_yield" in df.columns and "euro_area_2y_yield" in df.columns:
+        df["euro_area_slope_curve"] = df["euro_area_10y_yield"] - df["euro_area_2y_yield"]
+        df["delta_euro_area_slope"] = df["euro_area_slope_curve"].diff()
+        print("    OK euro_area_slope_curve, delta_euro_area_slope")
+
+    if "emu_value" in df.columns and "emu_growth" in df.columns:
+        df["emu_value_minus_growth"] = df["emu_value"] - df["emu_growth"]
+        print("    OK emu_value_minus_growth")
+
+    missing_summary = df.isnull().sum()
+    missing_pct = (missing_summary / len(df) * 100).round(2)
+
+    print("\n" + "="*70)
+    print("RESUMEN DE VALORES FALTANTES - EURO AREA")
+    print("="*70)
+    print(f"\n{'Variable':<32} {'Missing':<10} {'%':<10}")
+    print("-"*55)
+    for var in df.columns:
+        if var != "date":
+            n_missing = missing_summary[var]
+            pct_missing = missing_pct[var]
+            if n_missing > 0:
+                print(f"{var:<32} {n_missing:<10} {pct_missing:<10.2f}")
+
+    return df
+
+
+def summarize_raw_csv(filepath, value_col):
+    """Resume cobertura del CSV bruto asociado a una variable."""
+    if not filepath.exists():
+        return {
+            "raw_exists": False,
+            "raw_observations": 0,
+            "raw_start": "",
+            "raw_end": "",
+        }
+
+    try:
+        raw = pd.read_csv(filepath, parse_dates=["date"])
+        if value_col not in raw.columns:
+            return {
+                "raw_exists": True,
+                "raw_observations": len(raw),
+                "raw_start": "",
+                "raw_end": "",
+            }
+        valid = raw.dropna(subset=[value_col])
+        return {
+            "raw_exists": True,
+            "raw_observations": int(len(valid)),
+            "raw_start": valid["date"].min().strftime("%Y-%m-%d") if len(valid) else "",
+            "raw_end": valid["date"].max().strftime("%Y-%m-%d") if len(valid) else "",
+        }
+    except Exception as exc:
+        print(f"  AVISO: no se pudo auditar {filepath}: {exc}")
+        return {
+            "raw_exists": True,
+            "raw_observations": "",
+            "raw_start": "",
+            "raw_end": "",
+        }
+
+
+def variable_coverage(df, variable):
+    """Calcula cobertura mensual y missing values de una variable."""
+    if df.empty or variable not in df.columns:
+        return {
+            "monthly_non_missing": 0,
+            "missing_count": len(df) if not df.empty else 0,
+            "missing_pct": 100.0 if not df.empty else "",
+            "first_valid_date": "",
+            "last_valid_date": "",
+        }
+
+    valid = df.dropna(subset=[variable])
+    missing_count = int(df[variable].isna().sum())
+    missing_pct = round(missing_count / len(df) * 100, 2) if len(df) else ""
+    return {
+        "monthly_non_missing": int(len(valid)),
+        "missing_count": missing_count,
+        "missing_pct": missing_pct,
+        "first_valid_date": valid["date"].min().strftime("%Y-%m-%d") if len(valid) else "",
+        "last_valid_date": valid["date"].max().strftime("%Y-%m-%d") if len(valid) else "",
+    }
+
+
+def build_euro_area_data_audit(df):
+    """Construye tabla de auditoria de datos euro area."""
+    rows = []
+
+    transformation_notes = {
+        "log_eurostoxx50": "log(eurostoxx50)",
+        "ret_eurostoxx50": "diff(log_eurostoxx50)",
+        "delta_vstoxx": "diff(vstoxx)",
+        "delta_ciss": "diff(ciss)",
+        "delta_deposit_rate": "diff(deposit_facility_rate)",
+        "euro_area_slope_curve": "euro_area_10y_yield - euro_area_2y_yield",
+        "delta_euro_area_slope": "diff(euro_area_slope_curve)",
+        "log_eurosystem_total_assets": "log(eurosystem_total_assets) si estrictamente positivo",
+        "growth_eurosystem_total_assets": "diff(log_eurosystem_total_assets)",
+        "log_excess_liquidity": "log(excess_liquidity) si estrictamente positivo",
+        "growth_excess_liquidity": "diff(log_excess_liquidity)",
+        "emu_value_minus_growth": "emu_value - emu_growth si ambas series son comparables",
+    }
+
+    for variable, meta in EURO_AREA_MONTHLY_INPUTS.items():
+        filepath = DATA_RAW / meta["filename"]
+        raw_summary = summarize_raw_csv(filepath, variable)
+        coverage = variable_coverage(df, variable)
+        status = "confirmada" if meta.get("confirmed") else "pendiente/parcial"
+        if meta.get("required") and variable not in df.columns:
+            status = "faltante_requerida"
+
+        rows.append({
+            "variable": variable,
+            "type": "raw",
+            "source": meta.get("source", ""),
+            "source_frequency": meta.get("source_frequency", ""),
+            "aggregation": meta.get("method", ""),
+            "required": bool(meta.get("required", False)),
+            "source_status": status,
+            "raw_file": meta["filename"],
+            **raw_summary,
+            **coverage,
+            "transformation": "",
+            "notes": meta.get("notes", ""),
+        })
+
+    for variable in transformation_notes:
+        if variable not in df.columns:
+            continue
+        rows.append({
+            "variable": variable,
+            "type": "derived",
+            "source": "pipeline",
+            "source_frequency": "M",
+            "aggregation": "",
+            "required": False,
+            "source_status": "calculada",
+            "raw_file": "",
+            "raw_exists": "",
+            "raw_observations": "",
+            "raw_start": "",
+            "raw_end": "",
+            **variable_coverage(df, variable),
+            "transformation": transformation_notes[variable],
+            "notes": "",
+        })
+
+    for variable, meta in EURO_AREA_PLACEHOLDER_SERIES.items():
+        rows.append({
+            "variable": variable,
+            "type": "unresolved",
+            "source": meta.get("source", ""),
+            "source_frequency": "",
+            "aggregation": "",
+            "required": False,
+            "source_status": "pendiente",
+            "raw_file": "",
+            "raw_exists": False,
+            "raw_observations": 0,
+            "raw_start": "",
+            "raw_end": "",
+            "monthly_non_missing": 0,
+            "missing_count": "",
+            "missing_pct": "",
+            "first_valid_date": "",
+            "last_valid_date": "",
+            "transformation": "",
+            "notes": meta.get("notes", ""),
+        })
+
+    return pd.DataFrame(rows)
+
+
+def has_variable_coverage(df, variable):
+    """Indica si una variable existe y tiene al menos una observacion valida."""
+    return variable in df.columns and df[variable].notna().any()
+
+
+def write_euro_area_audit_report(df, audit_df):
+    """Escribe reporte markdown breve de auditoria de datos euro area."""
+    report_path = PROJECT_ROOT / "EURO_AREA_DATA_AUDIT.md"
+
+    if df.empty:
+        sample_start = sample_end = ""
+        monthly_obs = 0
+    else:
+        sample_start = df["date"].min().strftime("%Y-%m-%d")
+        sample_end = df["date"].max().strftime("%Y-%m-%d")
+        monthly_obs = len(df)
+
+    missing_lines = []
+    if not df.empty:
+        for variable in df.columns:
+            if variable == "date":
+                continue
+            missing_lines.append(
+                f"- `{variable}`: {int(df[variable].isna().sum())} missing, "
+                f"primer valido {variable_coverage(df, variable)['first_valid_date'] or 'n/a'}, "
+                f"ultimo valido {variable_coverage(df, variable)['last_valid_date'] or 'n/a'}"
+            )
+
+    full_sample_core = [
+        "eurostoxx50",
+        "ciss",
+        "deposit_facility_rate",
+        "eurosystem_total_assets",
+    ]
+    full_sample_ready = all(has_variable_coverage(df, variable) for variable in full_sample_core)
+
+    minimum_baseline_ready = all(
+        has_variable_coverage(df, variable)
+        for variable in [
+            "growth_eurosystem_total_assets",
+            "delta_ciss",
+            "ret_eurostoxx50",
+            "delta_deposit_rate",
+        ]
+    )
+    excess_liquidity_ready = has_variable_coverage(df, "growth_excess_liquidity")
+    growth_value_ready = has_variable_coverage(df, "emu_value_minus_growth")
+    yield_curve_ready = has_variable_coverage(df, "euro_area_slope_curve")
+    vstoxx_ready = has_variable_coverage(df, "delta_vstoxx")
+
+    unresolved = audit_df[audit_df["source_status"].isin(["pendiente", "pendiente/parcial", "faltante_requerida"])]
+    unresolved_lines = []
+    seen_unresolved = set()
+    for row in unresolved.itertuples():
+        if row.variable in seen_unresolved or not getattr(row, "notes", ""):
+            continue
+        seen_unresolved.add(row.variable)
+        unresolved_lines.append(f"- `{row.variable}`: {row.notes}")
+
+    content = [
+        "# Auditoria de datos euro area - Fase 2",
+        "",
+        "## Resumen de muestra",
+        "",
+        f"- Inicio de muestra mensual: `{sample_start or 'n/a'}`",
+        f"- Fin de muestra mensual: `{sample_end or 'n/a'}`",
+        f"- Observaciones mensuales: `{monthly_obs}`",
+        f"- Soporte 2000-2026 con nucleo minimo usando activos totales: `{'si' if full_sample_ready else 'no'}`",
+        f"- Modelo minimo listo con activos totales, CISS, EURO STOXX 50 y deposit facility rate: `{'si' if minimum_baseline_ready else 'no'}`",
+        f"- Exceso de liquidez listo como baseline full-sample: `{'no' if not excess_liquidity_ready else 'solo muestra corta desde 2024'}`",
+        f"- VSTOXX listo: `{'si' if vstoxx_ready else 'no'}`",
+        f"- Growth/Value listo: `{'si' if growth_value_ready else 'no'}`",
+        f"- Curva 2Y/10Y lista: `{'si, desde 2004' if yield_curve_ready else 'no'}`",
+        "",
+        "## Cobertura y missing values",
+        "",
+        *(missing_lines or ["- No hay datos mensuales disponibles."]),
+        "",
+        "## Decisiones de agregacion",
+        "",
+        "- Precios/indices de mercado: ultimo dato mensual cuando la fuente es diaria; EURO STOXX 50 usa ECB RTD mensual promedio por cobertura 2000-2026.",
+        "- CISS y volatilidad: ultimo dato mensual por defecto; queda TODO probar promedio mensual como robustez.",
+        "- Tipos de interes: ultimo dato mensual.",
+        "- Balance/liquidez/tenencias: ultimo dato mensual.",
+        "",
+        "## Incidencias y pendientes",
+        "",
+        *(unresolved_lines or ["- No quedan fuentes pendientes registradas."]),
+        "",
+        f"Tabla CSV detallada: `results/tables/euro_area_data_audit.csv`",
+    ]
+
+    report_path.write_text("\n".join(content) + "\n", encoding="utf-8")
+    print(f"  OK Reporte markdown guardado: {report_path}")
+
+    return report_path
+
+
+def save_euro_area_audit(df):
+    """Guarda auditoria CSV y reporte markdown para el dataset euro area."""
+    audit_df = build_euro_area_data_audit(df)
+    output_audit = RESULTS_TABLES / "euro_area_data_audit.csv"
+    audit_df.to_csv(output_audit, index=False, encoding="utf-8")
+    print(f"  OK Auditoria CSV guardada: {output_audit}")
+    write_euro_area_audit_report(df, audit_df)
+    return audit_df
+
+
 # =============================================================================
 # FUNCIÓN: LOAD ALL DATA
 # =============================================================================
@@ -118,6 +551,9 @@ def load_all_data():
     dict
         Diccionario con DataFrames mensuales
     """
+    if REGION == "euro_area":
+        return load_euro_area_data()
+
     print("\n" + "="*70)
     print("CARGANDO Y RESAMPLING A MENSUAL")
     print("="*70)
@@ -550,6 +986,7 @@ def main():
     print("\n" + "="*70)
     print(" PIPELINE DE AGREGACIÓN A FRECUENCIA MENSUAL")
     print("="*70)
+    print(f"Region activa: {REGION}")
     print(f"Periodo objetivo: {START_DATE} a {END_DATE}")
     print("="*70)
     
@@ -559,10 +996,20 @@ def main():
     data = load_all_data()
     
     # Paso 2: Merge
-    df_monthly = merge_all_series(data)
+    if REGION == "euro_area":
+        df_monthly = merge_euro_area_series(data)
+    else:
+        df_monthly = merge_all_series(data)
     
     # Paso 3: Transformaciones
-    df_monthly = calculate_transformations(df_monthly)
+    if REGION == "euro_area":
+        df_monthly = calculate_euro_area_transformations(df_monthly)
+    else:
+        df_monthly = calculate_transformations(df_monthly)
+
+    if df_monthly.empty:
+        print("\nAVISO: no hay datos mensuales disponibles. Pipeline finalizado sin guardar dataset.")
+        return
     
     # Paso 4: Filtrar por rango de fechas
     print("\n" + "="*70)
@@ -573,6 +1020,10 @@ def main():
         (df_monthly['date'] >= pd.to_datetime(START_DATE)) &
         (df_monthly['date'] <= pd.to_datetime(END_DATE))
     ]
+
+    if df_monthly.empty:
+        print("\nAVISO: no hay observaciones dentro del rango de fechas. No se guarda dataset.")
+        return
     
     print(f"Observaciones en rango: {len(df_monthly)}")
     print(f"Periodo final: {df_monthly['date'].min().strftime('%Y-%m')} a "
@@ -584,16 +1035,23 @@ def main():
     print("="*70)
     
     # CSV (human-readable)
-    output_csv = DATA_PROCESSED / "monthly_data.csv"
+    output_name = "monthly_data_euro_area" if REGION == "euro_area" else "monthly_data"
+    output_csv = DATA_PROCESSED / f"{output_name}.csv"
     df_monthly.to_csv(output_csv, index=False)
     size_csv = output_csv.stat().st_size / 1024
-    print(f"  ✓ CSV guardado: {output_csv} ({size_csv:.1f} KB)")
+    print(f"  OK CSV guardado: {output_csv} ({size_csv:.1f} KB)")
     
     # Pickle (Python-optimized)
-    output_pkl = DATA_PROCESSED / "monthly_data.pkl"
+    output_pkl = DATA_PROCESSED / f"{output_name}.pkl"
     df_monthly.to_pickle(output_pkl)
     size_pkl = output_pkl.stat().st_size / 1024
-    print(f"  ✓ Pickle guardado: {output_pkl} ({size_pkl:.1f} KB)")
+    print(f"  OK Pickle guardado: {output_pkl} ({size_pkl:.1f} KB)")
+
+    if REGION == "euro_area":
+        print("\n" + "="*70)
+        print("AUDITORIA DE DATOS EURO AREA")
+        print("="*70)
+        save_euro_area_audit(df_monthly)
     
     # Resumen
     elapsed = (datetime.now() - start_time).total_seconds()
@@ -601,8 +1059,8 @@ def main():
     print("PIPELINE COMPLETADO")
     print("="*70)
     print(f"Tiempo total: {elapsed:.1f}s")
-    print(f"Dataset final: {len(df_monthly)} meses × {len(df_monthly.columns)} variables")
-    print("\n✓ Datos listos para análisis\n")
+    print(f"Dataset final: {len(df_monthly)} meses x {len(df_monthly.columns)} variables")
+    print("\nOK Datos listos para analisis\n")
 
 
 # =============================================================================
